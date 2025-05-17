@@ -14,42 +14,7 @@ let
     endDate = "2050-01-01",
     perPage = 1000,
     //private functions
-    get = (route as list, optional query as record) =>
-        let
-            url = baseurl & List.Accumulate(route, "", (acc, next) => acc & "/" & next),
-            options = if query = null then [Headers = headers] else [Headers = headers, Query = query],
-            response = Web.Contents(url, options),
-            data =
-                try
-                    Json.Document(response)
-                otherwise
-                    Json.FromValue([Error = true, options = options, response = response])
-        in
-            data,
-    getPaged = (route as list, optional page as number) =>
-        let
-            ResultsList = List.Generate(
-                //start with empty record
-                () => [page = 0, data = null],
-                each [data] = null or Table.RowCount(Table.FromValue([data])) = perPage,
-                //get the next page
-                each
-                    [
-                        page = [page] + 1,
-                        data = try
-                            get(route, [page = Text.From([page] + 1), per_page = Text.From(perPage)])
-                        otherwise
-                            Json.Document("{}")
-                    ],
-                //return data only (ignore page count)
-                each [data]
-            ),
-            result = List.Accumulate(
-                ResultsList, {}, (acc, next) => if next <> null then List.Combine({acc, next}) else acc
-            )
-        in
-            result,
-    tableFromJson = (json) =>
+    tableFromJson = (json as list) =>
         let
             baseTable = Table.FromList(json, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
             colNames = List.Distinct(
@@ -58,6 +23,43 @@ let
             expanded = Table.ExpandRecordColumn(baseTable, "Column1", colNames, colNames)
         in
             expanded,
+    get = (route as list, optional query as record) =>
+        let
+            url = baseurl & List.Accumulate(route, "", (acc, next) => acc & "/" & next),
+            options = if query = null then [Headers = headers] else [Headers = headers, Query = query],
+            data = try
+                let 
+                    response = Web.Contents(url, options),
+                    data = Json.Document(response)
+                in 
+                    data
+            otherwise
+                Json.Document(Json.FromValue({[error = [url = url, options = options] ]}))
+        in
+            data,
+    getPaged = (route as list, optional page as number) =>
+        let
+            ResultsList = List.Generate(
+                //start with page 1
+                () =>
+                    [
+                        page = 1,
+                        data = tableFromJson(get(route, [page = Text.From(page), per_page = Text.From(perPage)]))
+                    ],
+                //continue while we have more pages to fetch
+                each Table.RowCount([data]) > 1, //might be an error
+                //get the next page
+                each
+                    [
+                        page = [page] + 1,
+                        data = tableFromJson(get(route, [page = Text.From(page), per_page = Text.From(perPage)]))
+                    ],
+                //return data only (ignore page)
+                each [data]
+            ),
+            result = Table.Combine(ResultsList)
+        in
+            result,
     me = get({"me"}),
     userId = Text.From(me[id]) as text,
     cats = () =>
@@ -179,7 +181,7 @@ let
         User = me,
         Accounts = () => tableFromJson(get({"users", userId, "accounts"})),
         Categories = cats,
-        Transactions = () => tableFromJson(getPaged({"users", userId, "transactions"})),
+        Transactions = () => getPaged({"users", userId, "transactions"}),
         Labels = () => get({"users", userId, "labels"})
     ]
 in
