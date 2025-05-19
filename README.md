@@ -4,7 +4,8 @@ Powerquery Library for Pocketsmith.
 ## Examples:
 ```m
 PocketSmith[User]() //logged in user info
-PocketSmith[Transactions]() //transactions
+PocketSmith[Transactions]() //all transactions
+PocketSmith[Transactions]([per_page = "500", start_date = "2025-02-25", end_date = "2025-05-20"]) //all transactions, retrieved 500 at a time, between 25/2/2025 and 20/5/2025
 ... etc.
 ```
 
